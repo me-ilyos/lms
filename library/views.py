@@ -31,6 +31,11 @@ def view_books(request):
     books = Book.objects.all()
     return render(request, "view_books.html", {'books':books})
 
+@login_required(login_url = '/student_login')
+def view_books_student(request):
+    books = Book.objects.filter(num_copies__gt=0)
+    return render(request, "view_books_student.html", {'books':books})
+
 @login_required(login_url = '/admin_login')
 def view_students(request):
     students = Student.objects.all()
@@ -46,6 +51,9 @@ def issue_book(request):
             obj.student_id = request.POST['name2']
             obj.isbn = request.POST['isbn2']
             obj.save()
+            book = Book.objects.get(isbn=request.POST['isbn2'])
+            book.num_copies -= 1
+            book.save()
             alert = True
             return render(request, "issue_book.html", {'obj':obj, 'alert':alert})
     return render(request, "issue_book.html", {'form':form})
@@ -61,26 +69,36 @@ def view_issued_book(request):
         if d>14:
             day=d-14
             fine=day*5
-        books = list(models.Book.objects.filter(isbn=i.isbn))
-        students = list(models.Student.objects.filter(user=i.student_id))
-        i=0
-        for l in books:
-            t=(students[i].user,students[i].user_id,books[i].name,books[i].isbn,issuedBooks[0].issued_date,issuedBooks[0].expiry_date,fine)
-            i=i+1
-            details.append(t)
+        student = Student.objects.get(id=i.student_id)
+        book = Book.objects.get(isbn=i.isbn)
+        details.append(
+            [
+                student.user,
+                student.classroom,
+                book.name,
+                book.isbn,
+                i.status,
+                i.issued_date,
+                i.expiry_date,
+                fine,
+                i.pk
+            ]
+        )
     return render(request, "view_issued_book.html", {'issuedBooks':issuedBooks, 'details':details})
 
 @login_required(login_url = '/student_login')
 def student_issued_books(request):
-    student = Student.objects.filter(user_id=request.user.id)
-    issuedBooks = IssuedBook.objects.filter(student_id=student[0].user_id)
+    student = Student.objects.get(user=request.user)
+    issuedBooks = IssuedBook.objects.filter(student_id=student.id)
+    print(issuedBooks)
     li1 = []
     li2 = []
 
     for i in issuedBooks:
         books = Book.objects.filter(isbn=i.isbn)
         for book in books:
-            t=(request.user.id, request.user.get_full_name, book.name,book.author)
+            t=(request.user.id, request.user.get_full_name, book.name,
+               book.author, i.status)
             li1.append(t)
 
         days=(date.today()-i.issued_date)
@@ -103,15 +121,15 @@ def edit_profile(request):
     if request.method == "POST":
         email = request.POST['email']
         phone = request.POST['phone']
-        branch = request.POST['branch']
+        # branch = request.POST['branch']
         classroom = request.POST['classroom']
-        roll_no = request.POST['roll_no']
+        # roll_no = request.POST['roll_no']
 
         student.user.email = email
         student.phone = phone
-        student.branch = branch
+        # student.branch = branch
         student.classroom = classroom
-        student.roll_no = roll_no
+        # student.roll_no = roll_no
         student.user.save()
         student.save()
         alert = True
@@ -153,9 +171,7 @@ def student_registration(request):
         last_name = request.POST['last_name']
         email = request.POST['email']
         phone = request.POST['phone']
-        branch = request.POST['branch']
         classroom = request.POST['classroom']
-        roll_no = request.POST['roll_no']
         image = request.FILES['image']
         password = request.POST['password']
         confirm_password = request.POST['confirm_password']
@@ -165,7 +181,7 @@ def student_registration(request):
             return render(request, "student_registration.html", {'passnotmatch':passnotmatch})
 
         user = User.objects.create_user(username=username, email=email, password=password,first_name=first_name, last_name=last_name)
-        student = Student.objects.create(user=user, phone=phone, branch=branch, classroom=classroom,roll_no=roll_no, image=image)
+        student = Student.objects.create(user=user, phone=phone, classroom=classroom, image=image)
         user.save()
         student.save()
         alert = True
@@ -209,3 +225,24 @@ def admin_login(request):
 def Logout(request):
     logout(request)
     return redirect ("/")
+
+def delete_issue(request, issue_id):
+    issue = IssuedBook.objects.get(pk=issue_id)
+    issue.delete()
+
+    return redirect('view_books')
+
+def issue_book_student(request, book_id):
+    book = Book.objects.get(pk=book_id)
+    student = Student.objects.get(user=request.user)
+    
+    book.num_copies -= 1
+    book.save()
+
+    issue = IssuedBook.objects.create(
+        student_id=student.id,
+        isbn=book.isbn
+    )
+    issue.save()
+
+    return redirect('view_books_student')
